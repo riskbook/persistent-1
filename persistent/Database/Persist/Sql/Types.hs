@@ -5,6 +5,8 @@ module Database.Persist.Sql.Types
     , readToUnknown, readToWrite, writeToUnknown
     , SqlBackendCanRead, SqlBackendCanWrite, SqlReadT, SqlWriteT, IsSqlBackend
     , OverflowNatural(..)
+    , ConnectionPoolConfig(..)
+    , defaultConnectionPoolConfig
     ) where
 
 import Control.Exception (Exception(..))
@@ -18,6 +20,7 @@ import Data.Typeable (Typeable)
 
 import Database.Persist.Types
 import Database.Persist.Sql.Types.Internal
+import Data.Time (NominalDiffTime)
 
 data Column = Column
     { cName      :: !DBName
@@ -55,6 +58,16 @@ type CautiousMigration = [(Bool, Sql)]
 type Migration = WriterT [Text] (WriterT CautiousMigration (ReaderT SqlBackend IO)) ()
 
 type ConnectionPool = Pool SqlBackend
+
+data ConnectionPoolConfig = ConnectionPoolConfig
+    { connectionPoolConfigStripes :: Int
+    , connectionPoolConfigIdleTimeout :: NominalDiffTime
+    , connectionPoolConfigSize :: Int
+    }
+    deriving (Show)
+
+defaultConnectionPoolConfig :: ConnectionPoolConfig
+defaultConnectionPoolConfig = ConnectionPoolConfig 1 600 10
 
 -- $rawSql
 --
