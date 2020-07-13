@@ -186,7 +186,13 @@ createPostgresqlPoolWithConf
     -> (PG.Connection -> IO ()) -- ^ Action to perform after connection is created.
     -> PostgresConf
     -> m (Pool SqlBackend)
-createPostgresqlPoolWithConf = error "todo"
+createPostgresqlPoolWithConf getVer modConn conf = do
+  let poolConfig = ConnectionPoolConfig
+        { connectionPoolConfigStripes = pgPoolStripes conf
+        , connectionPoolConfigIdleTimeout = fromInteger $ pgPoolIdleTimeout conf
+        , connectionPoolConfigSize = pgPoolSize conf
+        }
+  createSqlPoolWithConfig (open' modConn getVer (pgConnStr conf)) poolConfig
 
 -- | Same as 'withPostgresqlPool', but instead of opening a pool
 -- of connections, only one connection is opened.
@@ -1272,7 +1278,7 @@ data PostgresConf = PostgresConf
     
     , pgPoolStripes :: Int
     -- ^ How many stripes to divide the pool into. See "Data.Pool" for details.
-    , pgPoolIdleTimeout :: NominalDiffTime
+    , pgPoolIdleTimeout :: Integer
     -- ^ How long connections can remain idle before being disposed of.
     , pgPoolSize :: Int
       -- ^ How many connections should be held in the connection pool.
@@ -1289,7 +1295,7 @@ instance FromJSON PostgresConf where
         password <- o .: "password"
         poolSize <- o .:? "poolsize" .!= (connectionPoolConfigSize defaultPoolConfig)
         poolStripes <- o .:? "stripes" .!= (connectionPoolConfigStripes defaultPoolConfig)
-        poolIdleTimeout <- o .:? "idleTimeout" .!= (connectionPoolConfigIdleTimeout defaultPoolConfig)
+        poolIdleTimeout <- o .:? "idleTimeout" .!= (floor $ connectionPoolConfigIdleTimeout defaultPoolConfig)
         let ci = PG.ConnectInfo
                    { PG.connectHost     = host
                    , PG.connectPort     = port
@@ -1298,11 +1304,11 @@ instance FromJSON PostgresConf where
                    , PG.connectDatabase = database
                    }
             cstr = PG.postgreSQLConnectionString ci
-        return $ PostgresConf cstr poolSize poolStripes poolIdleTimeout
+        return $ PostgresConf cstr poolStripes poolIdleTimeout poolSize
 instance PersistConfig PostgresConf where
     type PersistConfigBackend PostgresConf = SqlPersistT
     type PersistConfigPool PostgresConf = ConnectionPool
-    createPoolConfig (PostgresConf cs size) = runNoLoggingT $ createPostgresqlPool cs size -- FIXME
+    createPoolConfig conf = runNoLoggingT $ createPostgresqlPoolWithConf getServerVersion (const $ pure ()) conf -- FIXME
     runPool _ = runSqlPool
     loadConfig = parseJSON
 
