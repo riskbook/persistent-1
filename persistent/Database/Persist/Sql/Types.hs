@@ -69,6 +69,7 @@ data ConnectionPoolConfig = ConnectionPoolConfig
     }
     deriving (Show)
 
+-- TODO: Bad defaults for SQLite maybe?
 -- | Initializes a ConnectionPoolConfig with default values. See the documentation of 'ConnectionPoolConfig' for each field's default value.
 --
 -- @since TODOVERSION
