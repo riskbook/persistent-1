@@ -20,6 +20,12 @@
 * Fix a bug where unsafe migration error messages were being shown using `Show` prior to printing, resulting in less helpful output. [#1080](https://github.com/yesodweb/persistent/pull/1080)
 * [#1087](https://github.com/yesodweb/persistent/pull/1087)
   * `RawSql` now has tuple instances up to GHC's max tuple size (62)
+* Add support for configuring the number of stripes and idle timeout for connection pools [#1098](https://github.com/yesodweb/persistent/pull/1098)
+  * For functions that do not specify an idle timeout, the default has been bumped to 600 seconds.
+    * This change is based off the experience of two production codebases. See [#775](https://github.com/yesodweb/persistent/issues/775)
+  * Add a new type `ConnectionPoolConfig` to configure the number of connections in a pool, their idle timeout, and stripe size.
+  * Add `defaultConnectionPoolConfig` to create a `ConnectionPoolConfig`
+  * Add `createSqlPoolWithConfig` and `withSqlPoolWithConfig`, which take this new data type
 
 ## 2.10.5.2
 
