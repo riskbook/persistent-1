@@ -5,6 +5,7 @@
 
 module Database.Persist.Sql.Orphan.PersistQuery
     ( deleteWhereCount
+    , deleteWhereIds
     , updateWhereCount
     , decorateSQLWithLimitOffset
     ) where
@@ -12,13 +13,14 @@ module Database.Persist.Sql.Orphan.PersistQuery
 import Control.Exception (throwIO)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader (ReaderT, ask, withReaderT)
+import Data.Acquire (with)
 import Data.ByteString.Char8 (readInteger)
 import Data.Conduit
 import qualified Data.Conduit.List as CL
 import Data.Int (Int64)
 import Data.List (transpose, inits, find)
 import Data.Maybe (isJust)
-import Data.Monoid (Monoid (..), (<>))
+import Data.Monoid (Monoid (..))
 import qualified Data.Text as T
 import Data.Text (Text)
 
@@ -86,7 +88,7 @@ instance PersistQueryRead SqlBackend where
     selectKeysRes filts opts = do
         conn <- ask
         srcRes <- rawQueryRes (sql conn) (getFiltsValues conn filts)
-        return $ fmap (.| CL.mapM parse) srcRes
+        return $ fmap (.| CL.mapM (parseKeys t)) srcRes
       where
         t = entityDef $ dummyFromFilts filts
         cols conn = T.intercalate "," $ dbIdColumns conn t
@@ -111,20 +113,23 @@ instance PersistQueryRead SqlBackend where
                 [] -> ""
                 ords -> " ORDER BY " <> T.intercalate "," ords
 
-        parse xs = do
-            keyvals <- case entityPrimary t of
-                      Nothing ->
-                        case xs of
-                           [PersistInt64 x] -> return [PersistInt64 x]
-                           [PersistDouble x] -> return [PersistInt64 (truncate x)] -- oracle returns Double
-                           _ -> return xs
-                      Just pdef ->
-                           let pks = map fieldHaskell $ compositeFields pdef
-                               keyvals = map snd $ filter (\(a, _) -> let ret=isJust (find (== a) pks) in ret) $ zip (map fieldHaskell $ entityFields t) xs
-                           in return keyvals
-            case keyFromValues keyvals of
-                Right k -> return k
-                Left err -> error $ "selectKeysImpl: keyFromValues failed" <> show err
+parseKeys :: (Monad m, PersistEntity record)
+          => EntityDef -> [PersistValue] -> m (Key record)
+parseKeys t xs = do
+    keyvals <- case entityPrimary t of
+              Nothing ->
+                case xs of
+                   [PersistInt64 x] -> return [PersistInt64 x]
+                   [PersistDouble x] -> return [PersistInt64 (truncate x)] -- oracle returns Double
+                   _ -> return xs
+              Just pdef ->
+                   let pks = map fieldHaskell $ compositeFields pdef
+                       keyvals = map snd $ filter (\(a, _) -> let ret=isJust (find (== a) pks) in ret) $ zip (map fieldHaskell $ entityFields t) xs
+                   in return keyvals
+    case keyFromValues keyvals of
+        Right k -> return k
+        Left err -> error $ "selectKeysImpl: keyFromValues failed" <> show err
+
 instance PersistQueryRead SqlReadBackend where
     count filts = withReaderT persistBackend $ count filts
     selectSourceRes filts opts = withReaderT persistBackend $ selectSourceRes filts opts
@@ -163,6 +168,28 @@ deleteWhereCount filts = withReaderT projectBackend $ do
             , wher
             ]
     rawExecuteCount sql $ getFiltsValues conn filts
+
+deleteWhereIds :: (PersistEntity record, MonadIO m, PersistEntityBackend record ~ SqlBackend)
+               => [Filter record]
+               -> ReaderT SqlBackend m [Key record]
+deleteWhereIds filts = withReaderT projectBackend $ do
+  conn <- ask
+  let wher = if null filts
+             then ""
+             else filterClause False conn filts
+      sql = mconcat
+        [ "DELETE FROM "
+        , connEscapeName conn $ entityDB t
+        , wher
+        , ret
+        ]
+  srcRes <- rawQueryRes sql $ getFiltsValues conn filts
+  liftIO $ with srcRes (\src -> runConduit $ src .| CL.mapM (parseKeys t) .| CL.consume)
+  where
+    t = entityDef $ dummyFromFilts filts
+    ret = case unDBName . fieldDB <$> entityKeyFields t of
+            []  -> " RETURNING ''"
+            pks -> " RETURNING " <> T.intercalate "," pks
 
 -- | Same as 'updateWhere', but returns the number of rows affected.
 --

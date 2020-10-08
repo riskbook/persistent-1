@@ -11,6 +11,7 @@ module Database.Persist.Sql
     , rawExecuteCount
     , rawSql
     , deleteWhereCount
+    , deleteWhereIds
     , updateWhereCount
     , transactionSave
     , transactionSaveWithIsolation
